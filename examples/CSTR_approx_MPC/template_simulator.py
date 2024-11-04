@@ -60,12 +60,12 @@ def template_simulator(model):
     simulator.set_p_fun(p_fun)
 
 
-    template = simulator.get_tvp_template()
+    template_tvp = simulator.get_tvp_template()
 
     def tvp_fun(t_curr):
         for k in range(21):
-            template['T_in'] = 130
-        return template
+            template_tvp['T_in'] = 130
+        return template_tvp
 
     simulator.set_tvp_fun(tvp_fun)
 

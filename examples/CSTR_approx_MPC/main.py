@@ -62,7 +62,8 @@ C_b_0 = 0.5 # This is the controlled variable [mol/l]
 T_R_0 = 134.14 #[C]
 T_K_0 = 130.0 #[C]
 x0 = np.array([C_a_0, C_b_0, T_R_0, T_K_0]).reshape(-1,1)
-u0=np.array([[0],[0]])
+u0=np.array([[0.05],[0]])
+p0=np.array([[130]])
 mpc.x0 = x0
 simulator.x0 = x0
 
@@ -79,7 +80,7 @@ n_samples=1000
 
 
 
-net=FeedforwardNN(n_in=mpc.model.n_x+mpc.model.n_u+model.n_tvp,n_out=mpc.model.n_u)
+net=FeedforwardNN(n_in=mpc.model.n_x+mpc.model.n_u+model.n_tvp,n_out=mpc.model.n_u,n_neurons=500,n_hidden_layers=2)
 approx_mpc = ApproxMPC(net)
 sampler=Sampler()
 approx_mpc.shift_from_box(lbu.T,ubu.T,lb.T,ub.T)
@@ -89,12 +90,12 @@ for k in range(10):
     ubp = np.array([[125+1*k]])
     data_dir = './sampling_'+str(k)
     #sampler.default_sampling(mpc,n_samples,lbx,ubx,lbu,ubu,data_dir,parametric=True,lbp=lbp,ubp=ubp)
-    trainer.scale_data(data_dir,n_samples)
+    #trainer.scale_data(data_dir,n_samples)
 #n_opt=7180
 n_epochs=2000
 #trainer.default_training(data_dir,n_samples,n_epochs,)
 approx_mpc.save_to_state_dict('approx_mpc.pth')
-approx_mpc.load_from_state_dict('approx_mpc.pth')
+approx_mpc.load_from_state_dict('./approx_mpc_models_fedsgd/run_5/approx_MPC_state_dict_5')
 
 # Initialize graphic:
 graphics = do_mpc.graphics.Graphics(simulator.data)
@@ -129,16 +130,41 @@ fig.tight_layout()
 plt.ion()
 
 timer = Timer()
-
+stage_cost=0
 for k in range(50):
     timer.tic()
-    x = np.concatenate((x0,u0),axis=0).squeeze()
+    #p0 = np.array([[np.random.uniform(125,135)]])
+    x = np.concatenate((x0,u0,p0),axis=0).squeeze()
+    u0_old=u0
     u0 = approx_mpc.make_step(x,clip_to_bounds=False)
     #u0 = mpc.make_step(x0)
     timer.toc()
+    template = simulator.get_p_template()
+    template['m_k'] = np.random.uniform(4,6)
+    template['alpha'] = np.random.uniform(0.95,1.05)
+    template['beta'] = np.random.uniform(0.9,1.1)
+    template['C_A0'] = np.random.uniform(4.5,5.7)#(4.5 + 5.7) / 2
+
+
+    def p_fun(t_curr):
+        return template
+
+
+    simulator.set_p_fun(p_fun)
+
+    template_tvp = simulator.get_tvp_template()
+
+
+    def tvp_fun(t_curr):
+        for k in range(21):
+            template_tvp['T_in'] = p0
+        return template_tvp
+
+
+    simulator.set_tvp_fun(tvp_fun)
     y_next = simulator.make_step(u0)
     x0 = estimator.make_step(y_next)
-
+    stage_cost+=(x0[0][0]-0.7)**2+(x0[1][0]-0.6)**2+0.1*(u0[0][0]/100-u0_old[0][0]/100)**2+1e-3*(u0[1][0]/2000-u0_old[1][0]/2000)**2
     if show_animation:
         graphics.plot_results(t_ind=k)
         #graphics.plot_predictions(t_ind=k)
@@ -148,7 +174,7 @@ for k in range(50):
 
 timer.info()
 timer.hist()
-
+print(stage_cost)
 input('Press any key to exit.')
 
 # Store results:
