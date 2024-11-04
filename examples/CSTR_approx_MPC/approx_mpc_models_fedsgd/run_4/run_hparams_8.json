@@ -1,0 +1,1 @@
+{"n_layers": 3, "n_neurons": 500, "n_in": 7, "n_out": 2, "N_epochs": 100, "batch_size": 100, "lrs": [0.01, 0.001, 0.0001, 1e-05], "overfit_batch": false, "train_data_file_name": "CSTR_dataset_train_100.pt", "val_data_file_name": "CSTR_dataset_val_100.pt", "n_train": 400, "N_steps": 4, "optimizer": "Adam", "train_loss": 0.002581015432951972, "val_loss": 0.02629990130662918}
