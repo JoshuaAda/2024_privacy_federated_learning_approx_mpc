@@ -319,10 +319,10 @@ class Trainer():
             train_loss = self.train_epoch(optim,train_loader)
             
             # Logging
-            self.log_value(epoch,"epoch")
+            self.log_value(epoch,"epochs")
             self.log_value(train_loss,"train_loss")
             self.log_value(optim.param_groups[0]["lr"],"lr")
-            print_keys = ["epoch","train_loss"]
+            print_keys = ["epochs","train_loss"]
 
             # Validation
             if val_loader is not None:

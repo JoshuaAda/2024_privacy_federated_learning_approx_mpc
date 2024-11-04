@@ -10,7 +10,7 @@ import copy
 import torch
 from pathlib import Path
 from do_mpc.approximateMPC.approx_MPC import ApproxMPC, Trainer, FeedforwardNN
-#from approx_MPC import ApproxMPC, ApproxMPCSettings, plot_history
+from approx_MPC import plot_history
 import json
 import numpy as np
 import matplotlib.pyplot as plt
@@ -83,12 +83,12 @@ else:
 
 # NN Training
 N_epochs = 100
-batch_size = 10
+batch_size = 100
 lrs = [1e-2,1e-3,1e-4,1e-5]
 overfit_batch = False # Default: False; Used to determine wether NN size is large enough and code is working w.o. bugs
 N_part=10#5
 non_uniform=False
-local=False
+local=True
 verbose=True
 #########################################################
 
@@ -105,7 +105,7 @@ if dataset=='CSTR':
     for k,file_name in enumerate(files_name):
         data=torch.load(file_name,map_location=device)
         num_values=len(data.tensors[0])
-        train_idx=300#int(0.8*num_values)
+        train_idx=400#int(0.8*num_values)
         X_train_scaled.append(data.tensors[0][:train_idx,:])
         if k==0:
             X_val_scaled=data.tensors[0][train_idx:,:]
@@ -114,6 +114,8 @@ if dataset=='CSTR':
             X_val_scaled=torch.cat((X_val_scaled, data.tensors[0][train_idx:,:]), dim=0)
             Y_val_scaled=torch.cat((Y_val_scaled, data.tensors[1][train_idx:,:]), dim=0)
         Y_train_scaled.append(data.tensors[1][:train_idx,:])
+    n_train = X_train_scaled[0].shape[0]
+    N_steps = int(torch.ceil(torch.tensor(n_train / batch_size)))
 
 else:
     print("Loading data...")
@@ -284,7 +286,7 @@ params=list()
 
 if local:
 
-    for k in range(N_part):
+    for k in range(1):
        # seed = 0
        # torch.manual_seed(seed)
        # approx_mpc1 = ApproxMPC(settings=ApproxMPCSettings(lb_x=lb_x, ub_x=ub_x, lb_u=lb_u, ub_u=ub_u,
@@ -292,16 +294,29 @@ if local:
        #                                                     n_neurons=n_neurons))
        #approx_mpc1.ann.load_state_dict(copy.deepcopy(approx_mpc.ann.state_dict()))
        if dataset=="CSTR":
-
-           optim_list=[torch.optim.Adam(approx_mpc[k].net.parameters(), lr=1e-3) for k in range(len(approx_mpc))]
+           history_pt = {"epochs": [], "train_loss": [], "val_loss": []}
+           optim_list=[torch.optim.AdamW(approx_mpc[k].net.parameters(), lr=1e-3) for k in range(len(approx_mpc))]
            train_list=[Trainer(approx_mpc=approx_mpc[k]) for k in range(len(approx_mpc))]
            for k in range(len(approx_mpc)):
-            train_list[k].train(N_epochs,optim_list[k],train_loader[k],val_loader)
+            history_pt=train_list[k].train(N_epochs,optim_list[k],train_loader[k],val_loader)
+            fig, ax = plot_history(history_pt)
+            histories.append(history_pt)
+            figs.append(fig)
+            run_hparams = {"n_layers": n_layers, "n_neurons": n_neurons, "n_in": n_in,
+                           "n_out": n_out, "N_epochs": N_epochs, "batch_size": batch_size,
+                           "lrs": lrs, "overfit_batch": overfit_batch,
+                           "train_data_file_name": train_data_file_name,
+                           "val_data_file_name": val_data_file_name,
+                           "n_train": n_train, "N_steps": N_steps,
+                           "optimizer": str(optim_list[0].__class__.__name__),
+                           "train_loss": history_pt["train_loss"][-1],
+                           "val_loss": history_pt["val_loss"][-1]}
+            params.append(run_hparams)
        else:
            history_pt = {"epochs": [], "train_loss": [], "val_loss": []}
            for idx_lr, lr in enumerate(lrs):
                 # optim=torch.optim.SGD(approx_mpc[k].ann.parameters(),lr=lr)
-                optim = torch.optim.Adam(approx_mpc[k].ann.parameters(), lr=lr)
+                optim = torch.optim.AdamW(approx_mpc[k].ann.parameters(), lr=lr)
                 # optim = torch.optim.Adam(approx_mpc.ann.parameters(),lr=lr)
                 # train
                 history_pt = approx_mpc[k].train(N_epochs, optim, train_loader[k], val_loader, history_pt, verbose=True)
@@ -323,7 +338,7 @@ if local:
 
 else:
     if dataset=="CSTR":
-        optim_list = [torch.optim.Adam(approx_mpc[k].net.parameters(), lr=1e-3) for k in range(len(approx_mpc))]
+        optim_list = [torch.optim.AdamW(approx_mpc[k].net.parameters(), lr=1e-3) for k in range(len(approx_mpc))]
         train_list = [Trainer(approx_mpc=approx_mpc[k]) for k in range(len(approx_mpc))]
         histories = list()
         for k in range(N_part):
@@ -357,9 +372,9 @@ else:
                 # Validation
                 if val_loader is not None:
                     val_loss = train_list[k].validation_epoch(val_loader)
-                    #histories[k]["val_loss"].append(val_loss)
-                    #if verbose:
-                    #    print("Val loss: ", histories[k]["val_loss"][-1])
+                    histories[k]["val_loss"].append(val_loss)
+                    if verbose:
+                        print("Val loss: ", histories[k]["val_loss"][-1])
     else:
         histories=list()
         for k in range(N_part):
@@ -368,7 +383,7 @@ else:
                 optims = list()
                 for k in range(N_part):
                     #optims.append(torch.optim.SGD(approx_mpc[k].ann.parameters(), lr=lr))
-                    optims.append(torch.optim.Adam(approx_mpc[k].ann.parameters(), lr=lr))
+                    optims.append(torch.optim.AdamW(approx_mpc[k].ann.parameters(), lr=lr))
                 # optim = torch.optim.Adam(approx_mpc.ann.parameters(),lr=lr)
                 # train
                 for epoch in range(N_epochs):
@@ -416,7 +431,7 @@ else:
                        "train_data_file_name": train_data_file_name,
                        "val_data_file_name": val_data_file_name,
                        "n_train": n_train, "N_steps": N_steps,
-                       "optimizer": str(optims[k].__class__.__name__),
+                       "optimizer": str(optim_list[k].__class__.__name__),
                        "train_loss": histories[k]["train_loss"][-1],
                        "val_loss": histories[k]["val_loss"][-1]}
         params.append(run_hparams)
@@ -441,8 +456,8 @@ for i in range(100):
     else:
         run_folder.mkdir()
         for k in range(N_part):
-            approx_mpc[k].save_model_settings(folder_path=run_folder,file_name=f"approx_MPC_settings_{k}")
-            approx_mpc[k].save_model(folder_path=run_folder,file_name=f"approx_MPC_state_dict_{k}")
+            #train_list[k].save_model_settings(folder_path=run_folder,file_name=f"approx_MPC_settings_{k}")
+            approx_mpc[k].save_to_state_dict(directory=run_folder.joinpath(f"approx_MPC_state_dict_{k}"))
             figs[k].savefig(run_folder.joinpath(f"history_{k}.png"))
             # save run_hparams as json
             with open(run_folder.joinpath(f"run_hparams_{k}.json"), 'w') as fp:
