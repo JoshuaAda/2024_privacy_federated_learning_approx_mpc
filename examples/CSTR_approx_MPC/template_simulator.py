@@ -50,10 +50,10 @@ def template_simulator(model):
 
 
     template = simulator.get_p_template()
-    template['m_k']=5
+    #template['m_k']=5
     template['alpha']=1
     template['beta']=1
-    template['C_A0']=(4.5+5.7)/2
+    #template['C_A0']=(4.5+5.7)/2
     def p_fun(t_curr):
         return template
 

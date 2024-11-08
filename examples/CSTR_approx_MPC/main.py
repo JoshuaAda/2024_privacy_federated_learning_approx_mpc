@@ -62,7 +62,7 @@ C_b_0 = 0.5 # This is the controlled variable [mol/l]
 T_R_0 = 134.14 #[C]
 T_K_0 = 130.0 #[C]
 x0 = np.array([C_a_0, C_b_0, T_R_0, T_K_0]).reshape(-1,1)
-u0=np.array([[0.05],[0]])
+u0=np.array([[0.05],[-8500]])
 p0=np.array([[130]])
 mpc.x0 = x0
 simulator.x0 = x0
@@ -76,7 +76,7 @@ lbp= np.array([[125]])
 ubp= np.array([[135]])
 lb=np.concatenate((lbx,lbu,lbp),axis=0)
 ub=np.concatenate((ubx,ubu,ubp),axis=0)
-n_samples=1000
+n_samples=200
 
 
 
@@ -85,17 +85,17 @@ approx_mpc = ApproxMPC(net)
 sampler=Sampler()
 approx_mpc.shift_from_box(lbu.T,ubu.T,lb.T,ub.T)
 trainer=Trainer(approx_mpc)
-for k in range(10):
-    lbp = np.array([[125+1*k]])
-    ubp = np.array([[125+1*k]])
+for k in range(6):
+    lbp = np.array([[125+2*(k)]])
+    ubp = np.array([[125+2*(k)]])
     data_dir = './sampling_'+str(k)
-    #sampler.default_sampling(mpc,n_samples,lbx,ubx,lbu,ubu,data_dir,parametric=True,lbp=lbp,ubp=ubp)
+    #sampler.default_sampling(mpc,simulator,estimator,n_samples,lbx,ubx,lbu,ubu,data_dir,parametric=True,lbp=lbp,ubp=ubp)
     #trainer.scale_data(data_dir,n_samples)
 #n_opt=7180
-n_epochs=2000
-#trainer.default_training(data_dir,n_samples,n_epochs,)
-approx_mpc.save_to_state_dict('approx_mpc.pth')
-approx_mpc.load_from_state_dict('./approx_mpc_models_fedsgd/run_5/approx_MPC_state_dict_5')
+n_epochs=1000
+#trainer.default_training(data_dir,n_samples,n_epochs)
+#approx_mpc.save_to_state_dict('approx_mpc.pth')
+approx_mpc.load_from_state_dict('./approx_mpc_models_fedsgd/run_11/approx_MPC_state_dict_0')
 
 # Initialize graphic:
 graphics = do_mpc.graphics.Graphics(simulator.data)
@@ -131,7 +131,7 @@ plt.ion()
 
 timer = Timer()
 stage_cost=0
-for k in range(50):
+for k in range(100):
     timer.tic()
     #p0 = np.array([[np.random.uniform(125,135)]])
     x = np.concatenate((x0,u0,p0),axis=0).squeeze()
@@ -140,10 +140,10 @@ for k in range(50):
     #u0 = mpc.make_step(x0)
     timer.toc()
     template = simulator.get_p_template()
-    template['m_k'] = np.random.uniform(4,6)
+    #template['m_k'] = np.random.uniform(4,6)
     template['alpha'] = np.random.uniform(0.95,1.05)
     template['beta'] = np.random.uniform(0.9,1.1)
-    template['C_A0'] = np.random.uniform(4.5,5.7)#(4.5 + 5.7) / 2
+    #template['C_A0'] = np.random.uniform(4.5,5.7)#(4.5 + 5.7) / 2
 
 
     def p_fun(t_curr):

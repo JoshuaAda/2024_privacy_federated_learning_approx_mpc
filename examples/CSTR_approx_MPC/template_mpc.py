@@ -60,8 +60,8 @@ def template_mpc(model, silence_solver=False):
     mpc.scaling['_u', 'Q_dot'] = 2000
     mpc.scaling['_u', 'F'] = 100
 
-    mterm = (model.x['C_b'] - 0.6)**2+(model.x['C_a'] - 0.7)**2
-    lterm = (model.x['C_b'] - 0.6)**2+(model.x['C_a'] - 0.7)**2
+    mterm = (model.x['C_b'] - 0.6)**2+(model.x['C_a'] - 0.7)**2#+(model.x['T_R'] - 130)**2
+    lterm = (model.x['C_b'] - 0.6)**2+(model.x['C_a'] - 0.7)**2#+(model.x['T_R'] - 130)**2
 
     mpc.set_objective(mterm=mterm, lterm=lterm)
 
@@ -99,7 +99,7 @@ def template_mpc(model, silence_solver=False):
     beta_var = np.array([1., 1.1, 0.9])
     m_k=np.array([5,4,6])
     C_A0=np.array([(4.5+5.7)/2,5.7,4.5])
-    mpc.set_uncertainty_values(alpha = alpha_var, beta = beta_var,m_k=m_k,C_A0=C_A0)
+    mpc.set_uncertainty_values(alpha = alpha_var, beta = beta_var)#,m_k=m_k,C_A0=C_A0)
 
     mpc.setup()
 

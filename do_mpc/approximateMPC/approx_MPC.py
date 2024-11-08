@@ -228,7 +228,7 @@ class Trainer():
         data_dir = data_dir.joinpath('data_n' + str(n_samples) + '_opt.pkl')
         with open(data_dir, 'rb') as f:
             dataset = pkl.load(f)
-        n_data = len(dataset['x0'])
+        n_data = len(dataset['x0'])*40
         x0 = torch.tensor(dataset['x0'], dtype=self.approx_mpc.torch_data_type).reshape(n_data, -1)
         u_prev = torch.tensor(dataset['u_prev'], dtype=self.approx_mpc.torch_data_type).reshape(n_data, -1)
         p = torch.tensor(dataset['p'], dtype=self.approx_mpc.torch_data_type).reshape(n_data, -1)
@@ -243,11 +243,24 @@ class Trainer():
         training_data,val_data=random_split(data,[1-val,val])
         train_dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=shuffle)
         test_dataloader = DataLoader(val_data, batch_size=batch_size, shuffle=shuffle)
+        lr_scheduler_patience = 100#train_config["lr_scheduler_patience"]
+        lr_scheduler_cooldown = 10#train_config["lr_scheduler_cooldown"]
+        lr_reduce_factor = 0.1#train_config["lr_reduce_factor"]
+        min_lr = 1e-8#train_config["min_lr"]
+
+        # Early Stopping
+        early_stop = True#train_config["early_stop"]
         optimizer = optim.Adam(self.approx_mpc.net.parameters(), lr=learning_rate)
-        return train_dataloader,test_dataloader,optimizer
+        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=lr_reduce_factor,
+                                                                  patience=lr_scheduler_patience,
+                                                                  threshold=1e-5, threshold_mode='rel',
+                                                                  cooldown=lr_scheduler_cooldown, min_lr=min_lr,
+                                                                  eps=0.0)
+
+        return train_dataloader,test_dataloader,optimizer,lr_scheduler
     def default_training(self,data_dir,n_samples,n_epochs):
-        train_dataloader,test_dataloader,optimizer=self.load_data(data_dir,n_samples)
-        self.train(n_epochs,optimizer,train_dataloader,test_dataloader)
+        train_dataloader,test_dataloader,optimizer,rl_scheduler=self.load_data(data_dir,n_samples)
+        self.train(n_epochs,optimizer,train_dataloader,rl_scheduler,val_loader=test_dataloader)
     def log_value(self,val,key):
         if torch.is_tensor(val):
            val = val.detach().cpu().item()        
@@ -313,16 +326,17 @@ class Trainer():
         val_loss = val_loss/n_val_steps
         return val_loss
 
-    def train(self,N_epochs,optim,train_loader,val_loader=None,print_frequency=10):
+    def train(self,N_epochs,optim,train_loader,lr_scheduler,val_loader=None,print_frequency=10):
         for epoch in range(N_epochs):
             # Training
             train_loss = self.train_epoch(optim,train_loader)
-            
+            lr_scheduler.step(train_loss)
+
             # Logging
             self.log_value(epoch,"epochs")
             self.log_value(train_loss,"train_loss")
             self.log_value(optim.param_groups[0]["lr"],"lr")
-            print_keys = ["epochs","train_loss"]
+            print_keys = ["epochs","train_loss","lr"]
 
             # Validation
             if val_loader is not None:
@@ -334,7 +348,8 @@ class Trainer():
             if (epoch+1) % print_frequency == 0:
                 self.print_last_entry(keys=print_keys)
                 print("-------------------------------")
-            
+            if optim.param_groups[0]["lr"] <= 1e-8:
+                break
         return self.history
 
     def compute_grad_update(self, old_model, new_model, device=None):

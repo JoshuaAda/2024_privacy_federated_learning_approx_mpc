@@ -76,8 +76,8 @@ def template_model(symvar_type='SX'):
     T_in= model.set_variable(var_type='_tvp', var_name='T_in')
     alpha = model.set_variable(var_type='_p', var_name='alpha')
     beta = model.set_variable(var_type='_p', var_name='beta')
-    C_A0 = model.set_variable(var_type='_p', var_name='C_A0')
-    m_k = model.set_variable(var_type='_p', var_name='m_k')
+    #C_A0 = model.set_variable(var_type='_p', var_name='C_A0')
+    #m_k = model.set_variable(var_type='_p', var_name='m_k')
     # Set expression. These can be used in the cost function, as non-linear constraints
     # or just to monitor another output.
     T_dif = model.set_expression(expr_name='T_dif', expr=T_R-T_K)

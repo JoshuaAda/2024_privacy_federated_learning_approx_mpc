@@ -55,8 +55,8 @@ elif dataset=='NDI':
     n_in = 4
     n_out = 2
 elif dataset=='CSTR':
-    num_samples=1000
-    num_par=10
+    num_samples=200
+    num_par=6
     files_name=["./sampling_"+str(k)+"/data_n"+str(num_samples)+"_opt_scaled.pth" for k in range(num_par)]
     train_data_file_name = "CSTR_dataset_train_100.pt"
     train_data_folder = file_pth.joinpath('datasets')
@@ -82,13 +82,13 @@ else:
 
 
 # NN Training
-N_epochs = 100
-batch_size = 100
+N_epochs = 200
+batch_size = 200
 lrs = [1e-2,1e-3,1e-4,1e-5]
 overfit_batch = False # Default: False; Used to determine wether NN size is large enough and code is working w.o. bugs
-N_part=10#5
+N_part=6#5
 non_uniform=False
-local=True
+local=False
 verbose=True
 #########################################################
 
@@ -105,7 +105,7 @@ if dataset=='CSTR':
     for k,file_name in enumerate(files_name):
         data=torch.load(file_name,map_location=device)
         num_values=len(data.tensors[0])
-        train_idx=400#int(0.8*num_values)
+        train_idx=4000#int(0.8*num_values)
         X_train_scaled.append(data.tensors[0][:train_idx,:])
         if k==0:
             X_val_scaled=data.tensors[0][train_idx:,:]
@@ -200,8 +200,8 @@ for k in range(N_part):
         ubx = np.array([[2], [2], [140], [140]])
         lbu = np.array([[5], [-8500]])
         ubu = np.array([[100], [0]])
-        lbp = np.array([[0.95]])
-        ubp = np.array([[1.05]])
+        lbp = np.array([[127]])
+        ubp = np.array([[133]])
         lb = np.concatenate((lbx, lbu, lbp), axis=0)
         ub = np.concatenate((ubx, ubu, ubp), axis=0)
     else:
@@ -228,9 +228,9 @@ for k in range(N_part):
         ub_u = torch.tensor([0.2])
     if dataset=='CSTR':
         approx_mpc=list()
+        net = FeedforwardNN(n_in=n_in, n_out=n_out, n_neurons=n_neurons)
         for k in range(num_par):
-            net = FeedforwardNN(n_in=n_in, n_out=n_out, n_neurons=n_neurons)
-            approx_mpc_instance = ApproxMPC(net)
+            approx_mpc_instance = ApproxMPC(copy.deepcopy(net))
             approx_mpc_instance.shift_from_box(lbu.T, ubu.T, lb.T, ub.T)
             approx_mpc.append(approx_mpc_instance)
 
@@ -297,8 +297,22 @@ if local:
            history_pt = {"epochs": [], "train_loss": [], "val_loss": []}
            optim_list=[torch.optim.AdamW(approx_mpc[k].net.parameters(), lr=1e-3) for k in range(len(approx_mpc))]
            train_list=[Trainer(approx_mpc=approx_mpc[k]) for k in range(len(approx_mpc))]
+           lr_scheduler_patience = 100  # train_config["lr_scheduler_patience"]
+           lr_scheduler_cooldown = 10  # train_config["lr_scheduler_cooldown"]
+           lr_reduce_factor = 0.1  # train_config["lr_reduce_factor"]
+           min_lr = 1e-8  # train_config["min_lr"]
+
+           # Early Stopping
+           early_stop = True  # train_config["early_stop"]
+
+           lr_scheduler_list = [torch.optim.lr_scheduler.ReduceLROnPlateau(optim_list[k], mode='min', factor=lr_reduce_factor,
+                                                                     patience=lr_scheduler_patience,
+                                                                     threshold=1e-5, threshold_mode='rel',
+                                                                     cooldown=lr_scheduler_cooldown, min_lr=min_lr,
+                                                                     eps=0.0) for k in range(N_part)]
+
            for k in range(len(approx_mpc)):
-            history_pt=train_list[k].train(N_epochs,optim_list[k],train_loader[k],val_loader)
+            history_pt=train_list[k].train(N_epochs,optim_list[k],train_loader[k],lr_scheduler_list[k],val_loader)
             fig, ax = plot_history(history_pt)
             histories.append(history_pt)
             figs.append(fig)
@@ -340,6 +354,21 @@ else:
     if dataset=="CSTR":
         optim_list = [torch.optim.AdamW(approx_mpc[k].net.parameters(), lr=1e-3) for k in range(len(approx_mpc))]
         train_list = [Trainer(approx_mpc=approx_mpc[k]) for k in range(len(approx_mpc))]
+        lr_scheduler_patience = 40  # train_config["lr_scheduler_patience"]
+        lr_scheduler_cooldown = 10  # train_config["lr_scheduler_cooldown"]
+        lr_reduce_factor = 0.1  # train_config["lr_reduce_factor"]
+        min_lr = 1e-8  # train_config["min_lr"]
+
+        # Early Stopping
+        early_stop = True  # train_config["early_stop"]
+
+        lr_scheduler_list = [
+            torch.optim.lr_scheduler.ReduceLROnPlateau(optim_list[k], mode='min', factor=lr_reduce_factor,
+                                                       patience=lr_scheduler_patience,
+                                                       threshold=1e-5, threshold_mode='rel',
+                                                       cooldown=lr_scheduler_cooldown, min_lr=min_lr,
+                                                       eps=0.0) for k in range(N_part)]
+
         histories = list()
         for k in range(N_part):
             histories.append({"epochs": [], "train_loss": [], "val_loss": []})
@@ -350,6 +379,7 @@ else:
                 # Training
                 backup = copy.deepcopy(approx_mpc[k].net)
                 train_loss = train_list[k].train_epoch(optim_list[k], train_loader[k])
+                lr_scheduler_list[k].step(train_loss)
                 gradient = train_list[k].compute_grad_update(old_model=backup, new_model=approx_mpc[k].net,
                                                              device=device)
                 gradients.append(gradient)
@@ -359,6 +389,7 @@ else:
                 if verbose:
                     print("Epoch: ", history["epochs"][-1])
                     print("Train loss: ", history["train_loss"][-1])
+                    print("Learning Rate: ", optim_list[-1].param_groups[0]["lr"])
             aggregated_gradient = [torch.zeros(param.shape).to(device) for param in approx_mpc[0].net.parameters()]
 
             # aggregate and update server model
